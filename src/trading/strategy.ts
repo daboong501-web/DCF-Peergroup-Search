@@ -136,7 +136,7 @@ export class StrategyRegistry {
       }
       params = parsed.data;
     }
-    const create = plugin.create as (p: unknown) => Strategy<Record<string, unknown>>;
+    const create = plugin.create as unknown as (p: unknown) => Strategy<Record<string, unknown>>;
     return create(params);
   }
 }

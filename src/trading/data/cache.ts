@@ -99,7 +99,11 @@ export function listCachedDates(
     .sort();
 }
 
-/** [fromMs, toMs) 구간에 걸치는 ET 날짜 키를 모두 만든다. */
+/**
+ * [fromMs, toMs) 구간에 걸치는 ET 날짜 키를 모두 만든다 (주말 제외).
+ * 공휴일은 여기서 걸러낼 수 없으므로, 데이터가 없는 날은 빈 마커 파일로 표시해
+ * "받았는데 봉이 없는 날"과 "아직 안 받은 날"을 구분한다.
+ */
 export function enumerateSessionDates(fromMs: number, toMs: number): string[] {
   const dates: string[] = [];
   const DAY = 86_400_000;
@@ -108,7 +112,45 @@ export function enumerateSessionDates(fromMs: number, toMs: number): string[] {
     const key = etDateKey(t);
     if (dates[dates.length - 1] !== key) dates.push(key);
   }
-  return [...new Set(dates)].sort();
+  return [...new Set(dates)]
+    .sort()
+    .filter((d) => {
+      const [y, m, dd] = d.split("-").map(Number);
+      const weekday = new Date(Date.UTC(y, m - 1, dd)).getUTCDay();
+      return weekday !== 0 && weekday !== 6;
+    });
+}
+
+/**
+ * 봉이 없는 세션일(공휴일·상장 전 등)을 빈 캐시 파일로 표시한다.
+ * 이게 없으면 휴장일 때문에 매번 API 를 다시 때리게 된다.
+ */
+export function writeEmptyDayMarkers(
+  symbol: string,
+  interval: BarInterval,
+  dates: string[],
+  meta: { source: string; adjusted?: boolean },
+  root = DEFAULT_CACHE_ROOT
+): number {
+  mkdirSync(join(root, interval, symbol.toUpperCase()), { recursive: true });
+  let count = 0;
+  for (const date of dates) {
+    const path = dayPath(root, symbol, interval, date);
+    if (existsSync(path)) continue;
+    const payload: CacheFile = {
+      schema: 1,
+      symbol: symbol.toUpperCase(),
+      interval,
+      sessionDate: date,
+      adjusted: meta.adjusted ?? null,
+      source: meta.source,
+      fetchedAt: new Date().toISOString(),
+      bars: [],
+    };
+    writeFileSync(path, JSON.stringify(payload));
+    count += 1;
+  }
+  return count;
 }
 
 /** 로컬 캐시만 읽는 소스. 네트워크를 전혀 쓰지 않는다 (백테스트 기본 경로). */

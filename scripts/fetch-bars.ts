@@ -28,7 +28,12 @@ import {
   parseSymbols,
   requireString,
 } from "../src/trading/cli";
-import { CachedBarSource, writeCachedBars } from "../src/trading/data/cache";
+import {
+  CachedBarSource,
+  enumerateSessionDates,
+  writeCachedBars,
+  writeEmptyDayMarkers,
+} from "../src/trading/data/cache";
 import { validateBars } from "../src/trading/data/source";
 import { TossBarSource } from "../src/trading/data/tossSource";
 import type { BarInterval } from "../src/trading/types";
@@ -85,18 +90,24 @@ async function main(): Promise<void> {
     const bars = await source.getBars({ symbol, interval, fromMs, toMs, adjusted });
     if (bars.length === 0) {
       console.log(`[${symbol}] 받은 봉이 없습니다 (휴장 구간이거나 상장 전일 수 있습니다).`);
-      continue;
+    } else {
+      const problems = validateBars(bars, symbol);
+      if (problems.length > 0) {
+        console.warn(`[${symbol}] 데이터 정합성 경고 ${problems.length}건 (앞 5건):`);
+        for (const p of problems.slice(0, 5)) console.warn(`   ${p}`);
+      }
+      const written = writeCachedBars(symbol, interval, bars, { source: "toss", adjusted });
+      console.log(
+        `[${symbol}] ${bars.length}봉 저장 완료 → ${written.length}개 파일 ` +
+          `(${new Date(bars[0].t).toISOString()} ~ ${new Date(bars[bars.length - 1].t).toISOString()})`
+      );
     }
-    const problems = validateBars(bars, symbol);
-    if (problems.length > 0) {
-      console.warn(`[${symbol}] 데이터 정합성 경고 ${problems.length}건 (앞 5건):`);
-      for (const p of problems.slice(0, 5)) console.warn(`   ${p}`);
-    }
-    const written = writeCachedBars(symbol, interval, bars, { source: "toss", adjusted });
-    console.log(
-      `[${symbol}] ${bars.length}봉 저장 완료 → ${written.length}개 파일 ` +
-        `(${new Date(bars[0].t).toISOString()} ~ ${new Date(bars[bars.length - 1].t).toISOString()})`
-    );
+    // 휴장일 등 봉이 없는 날은 빈 마커로 남겨서 다음 실행 때 다시 받지 않게 한다.
+    const markers = writeEmptyDayMarkers(symbol, interval, enumerateSessionDates(fromMs, toMs), {
+      source: "toss",
+      adjusted,
+    });
+    if (markers > 0) console.log(`[${symbol}] 봉 없는 세션일 ${markers}일을 빈 캐시로 표시했습니다.`);
   }
 }
 
