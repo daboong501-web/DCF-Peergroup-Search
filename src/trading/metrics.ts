@@ -60,6 +60,19 @@ export interface PerformanceMetrics {
   exitReasonCounts: Record<string, number>;
   /** 세션을 넘겨 보유한 거래 수. 당일청산 전략에서는 반드시 0 이어야 한다. */
   overnightTrades: number;
+
+  /**
+   * **참여율** (H6) — 최소 1건 이상 거래한 세션 / 전체 세션.
+   * 명세 A.4 의 "선택적 참여" 가 실제로 얼마나 선택적인지를 드러낸다.
+   * S1 합격선: ≤ 0.60.
+   */
+  participationRate: number;
+  /**
+   * **실효 노출** (H6) — 시간가중 평균 노출 비율의 추정치.
+   * Σ_거래(진입금액 × 보유봉수) / Σ_봉(총자산). 봉 간격이 균일할 때 정확하다.
+   * 합격선: ≤ 0.15. 합성 세션(일봉 어댑터)에서는 봉 수가 인위적이라 해석에 주의.
+   */
+  effectiveExposure: number;
 }
 
 export function computeMetrics(result: BacktestResult): PerformanceMetrics {
@@ -126,7 +139,25 @@ export function computeMetrics(result: BacktestResult): PerformanceMetrics {
     losingDays: daily.filter((d) => d.netPnl < 0).length,
     exitReasonCounts: countBy(trades, (t) => t.exitReason),
     overnightTrades: trades.filter((t) => t.sessionDate !== sessionDateOfExit(t)).length,
+
+    participationRate:
+      daily.length > 0 ? daily.filter((d) => d.tradeCount > 0).length / daily.length : 0,
+    effectiveExposure: computeEffectiveExposure(result),
   };
+}
+
+/**
+ * 시간가중 평균 노출 추정치.
+ * 분자: Σ_거래 (진입금액 × 보유봉수), 분모: Σ_봉 총자산.
+ * `barsHeld` 가 0 인 거래(같은 봉 진입·청산)는 최소 1봉으로 센다.
+ */
+function computeEffectiveExposure(result: BacktestResult): number {
+  const denom = sum(result.equityCurve.map((p) => p.equity));
+  if (!(denom > 0)) return 0;
+  const numer = sum(
+    result.trades.map((t) => t.entryPrice * t.qty * Math.max(1, t.barsHeld))
+  );
+  return numer / denom;
 }
 
 /** 봉 단위 자산곡선 기준 최대낙폭. */
@@ -253,6 +284,10 @@ export function formatReport(
     lines.push(`  ${reason.padEnd(18)}: ${count}`);
   }
   lines.push(`오버나이트 거래   : ${metrics.overnightTrades} (당일청산 전략이면 0 이어야 함)`);
+  lines.push("");
+  lines.push("── 참여 (H6) ──");
+  lines.push(`참여율            : ${(metrics.participationRate * 100).toFixed(1)}%  (S1 합격선 ≤ 60%)`);
+  lines.push(`실효 노출(추정)   : ${(metrics.effectiveExposure * 100).toFixed(2)}%  (합격선 ≤ 15%)`);
 
   if (options.showDaily !== false && result.daily.length > 0) {
     lines.push("");

@@ -11,6 +11,10 @@
  */
 
 import { strategyRegistry } from "../strategy";
+import { concretumPlugin } from "./concretum";
+import { dailyOpenClosePlugin, gapReversalDailyPlugin } from "./dailyBaseline";
+import { mimClosePlugin } from "./mimClose";
+import { mindTheGapPlugin } from "./mindTheGap";
 import { noopPlugin } from "./noop";
 
 let bootstrapped = false;
@@ -19,7 +23,19 @@ export function registerBuiltinStrategies(): void {
   if (bootstrapped) return;
   bootstrapped = true;
   strategyRegistry.register(noopPlugin);
-  // 실전 전략 플러그인은 여기에 추가한다.
+
+  // ── 명세 B장 확정 전략 (1분봉 필요) ──
+  strategyRegistry.register(mimClosePlugin); // S1
+  strategyRegistry.register(concretumPlugin); // S2
+  strategyRegistry.register(mindTheGapPlugin); // S3
+
+  // ── 일봉 베이스라인 (S1~S3 의 대체가 아니라 전제 검증용) ──
+  strategyRegistry.register(dailyOpenClosePlugin); // S0
+  strategyRegistry.register(gapReversalDailyPlugin); // S3 일봉 프록시
 }
 
 export { strategyRegistry };
+export { concretumPlugin } from "./concretum";
+export { dailyOpenClosePlugin, gapReversalDailyPlugin } from "./dailyBaseline";
+export { mimClosePlugin } from "./mimClose";
+export { mindTheGapPlugin } from "./mindTheGap";

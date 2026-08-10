@@ -21,7 +21,7 @@
  *    수량 결정, 체결 시뮬레이션, 수수료·슬리피지, 일일 손실한도, 당일청산은 모두 엔진 책임이다.
  */
 
-import type { ZodType } from "zod";
+import type { ZodType, ZodTypeDef } from "zod";
 import type { Bar, BarInterval, Fill, SessionInfo, Signal, StrategyContext } from "./types";
 
 /** 전략 실행 모드. 동일 전략 객체가 세 모드에서 그대로 쓰인다. */
@@ -58,8 +58,11 @@ export interface Strategy<P = Record<string, unknown>> {
    */
   readonly warmupBars?: number;
 
-  /** 파라미터 zod 스키마. 있으면 엔진이 실행 전에 검증한다. */
-  readonly paramsSchema?: ZodType<P>;
+  /**
+   * 파라미터 zod 스키마. 있으면 엔진이 실행 전에 검증한다.
+   * 입력 타입을 `unknown` 으로 열어두어 `.default()` 가 붙은 스키마도 그대로 넣을 수 있다.
+   */
+  readonly paramsSchema?: ZodType<P, ZodTypeDef, unknown>;
 
   /** 1회 초기화. 실행 모드/심볼/파라미터를 받는다. */
   init?(ctx: StrategyInitContext<P>): void;
@@ -91,7 +94,7 @@ export interface StrategyPlugin<P = Record<string, unknown>> {
   name: string;
   version?: string;
   /** 파라미터 스키마. 기본값은 zod `.default()` 로 표현한다. */
-  paramsSchema?: ZodType<P>;
+  paramsSchema?: ZodType<P, ZodTypeDef, unknown>;
   /** 검증된 파라미터로 전략 인스턴스를 만든다. 매 실행마다 새 인스턴스가 생성된다. */
   create(params: P): Strategy<P>;
 }
@@ -123,7 +126,7 @@ export class StrategyRegistry {
         `STRATEGY_NOT_FOUND: '${name}' 전략이 없습니다. 등록된 전략: ${this.list().join(", ") || "(없음)"}`
       );
     }
-    const schema = plugin.paramsSchema as ZodType<unknown> | undefined;
+    const schema = plugin.paramsSchema as ZodType<unknown, ZodTypeDef, unknown> | undefined;
     let params: unknown = rawParams;
     if (schema) {
       const parsed = schema.safeParse(rawParams);
