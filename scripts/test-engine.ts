@@ -522,6 +522,103 @@ check("formatReport 가 예외 없이 문자열을 만든다", () => {
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
+
+// ── [I] 매도 계획 (진입 시점에 청산 조건을 확정한다) ──
+console.log("\n[I] 매도 계획 — 시간 청산 · 계획 강제");
+
+// I-1. maxHoldBars: 손절·익절 어디에도 닿지 않아도 계획한 봉 수가 지나면 청산한다.
+{
+  // 09:31 진입 후 가격이 100 근처에서만 움직여 손절(95)·익절(110) 어디에도 안 닿는다.
+  const iBars = [
+    bar(9, 30, 100, 100.2, 99.8, 100),
+    bar(9, 31, 100, 100.3, 99.9, 100.1),
+    bar(9, 32, 100.1, 100.4, 100.0, 100.2),
+    bar(9, 33, 100.2, 100.5, 100.1, 100.3),
+    bar(9, 34, 100.3, 100.6, 100.2, 100.4),
+    bar(9, 35, 100.4, 100.7, 100.3, 100.5),
+  ];
+  const iStrategy = createScriptedStrategy((b, _ctx, index) =>
+    index === 0
+      ? [{
+          kind: "BUY", symbol: b.symbol, qty: 10,
+          stopLoss: 95, takeProfit: 110, maxHoldBars: 3,
+          reason: "exit-plan-test",
+        }]
+      : null
+  );
+  const iResult = runBacktest(iStrategy, bars(iBars), baseConfig());
+
+  check("maxHoldBars=3 이면 진입 3봉 뒤 시간청산된다", () => {
+    const t = onlyTrade(iResult);
+    eq(t.exitReason, "TIME_EXIT", "청산 사유");
+  });
+  check("시간청산도 당일 안에 끝난다 (오버나이트 0건)", () => {
+    eq(iResult.trades.filter((t) => t.exitReason === "EOD_LIQUIDATION").length, 0, "EOD 청산 건수");
+  });
+}
+
+// I-2. 손절/익절이 먼저 닿으면 그쪽이 이긴다 (시간청산은 마지막 안전망).
+{
+  const jBars = [
+    bar(9, 30, 100, 100.2, 99.8, 100),
+    bar(9, 31, 100, 100.3, 99.9, 100.1),
+    bar(9, 32, 100, 112, 99.9, 111), // 익절 110 터치
+    bar(9, 33, 111, 111.5, 110.5, 111),
+    bar(9, 34, 111, 111.5, 110.5, 111),
+  ];
+  const jStrategy = createScriptedStrategy((b, _ctx, index) =>
+    index === 0
+      ? [{ kind: "BUY", symbol: b.symbol, qty: 10, stopLoss: 95, takeProfit: 110, maxHoldBars: 3 }]
+      : null
+  );
+  const jResult = runBacktest(jStrategy, bars(jBars), baseConfig());
+  check("maxHoldBars 이전에 익절가에 닿으면 TAKE_PROFIT 으로 청산된다", () => {
+    eq(onlyTrade(jResult).exitReason, "TAKE_PROFIT", "청산 사유");
+  });
+}
+
+// I-3. requireExitPlan=true 면 매도 계획이 빠진 진입을 거부한다.
+{
+  const kBars = [bar(9, 30, 100, 101, 99, 100), bar(9, 31, 100, 101, 99, 100)];
+  const mkStrategy = (signal: Partial<Signal>) =>
+    createScriptedStrategy((b, _ctx, index) =>
+      index === 0 ? [{ kind: "BUY", symbol: b.symbol, qty: 10, ...signal } as Signal] : null
+    );
+  const strictConfig = () =>
+    baseConfig({ risk: { ...baseConfig().risk, requireExitPlan: true } as EngineConfig["risk"] });
+
+  const cases: Array<[string, Partial<Signal>]> = [
+    ["손절가 누락", { takeProfit: 110, maxHoldBars: 3 }],
+    ["익절가 누락", { stopLoss: 95, maxHoldBars: 3 }],
+    ["최대보유봉수 누락", { stopLoss: 95, takeProfit: 110 }],
+    ["전부 누락", {}],
+  ];
+  for (const [label, sig] of cases) {
+    check(`requireExitPlan=true — ${label} 시 진입 거부`, () => {
+      let threw = false;
+      try {
+        runBacktest(mkStrategy(sig), bars(kBars), strictConfig());
+      } catch (err) {
+        threw = err instanceof Error && err.message.startsWith("EXIT_PLAN_REQUIRED");
+      }
+      eq(threw, true, "EXIT_PLAN_REQUIRED 예외");
+    });
+  }
+
+  check("requireExitPlan=true — 세 조건을 다 갖추면 정상 진입", () => {
+    const ok = runBacktest(
+      mkStrategy({ stopLoss: 95, takeProfit: 110, maxHoldBars: 3 }),
+      bars(kBars),
+      strictConfig()
+    );
+    eq(ok.trades.length, 1, "거래 건수");
+  });
+
+  check("requireExitPlan=false (기본) — 계획 없이도 기존처럼 진입된다", () => {
+    const legacy = runBacktest(mkStrategy({}), bars(kBars), baseConfig());
+    eq(legacy.trades.length, 1, "거래 건수");
+  });
+}
 console.log("\n" + "═".repeat(70));
 if (failures.length === 0) {
   console.log(`✅ 전체 통과: ${passed}개 검증 항목`);

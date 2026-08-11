@@ -114,6 +114,7 @@ interface OpenPosition {
   entryBarIndex: number;
   stopLoss: number | null;
   takeProfit: number | null;
+  maxHoldBars: number | null;
   entryCommission: number;
   entrySlippage: number;
   entryFx: number;
@@ -131,6 +132,7 @@ interface PendingOrder {
   sizePct: number | null;
   stopLoss: number | null;
   takeProfit: number | null;
+  maxHoldBars: number | null;
   barsRemaining: number;
   reason: string | undefined;
   createdAt: number;
@@ -340,6 +342,7 @@ export function runBacktest(
       openedAt: pos.openedAt,
       stopLoss: pos.stopLoss,
       takeProfit: pos.takeProfit,
+      maxHoldBars: pos.maxHoldBars,
       costPaid: pos.entryCommission + pos.entrySlippage + pos.entryFx,
       entryBarIndex: pos.entryBarIndex,
     };
@@ -368,6 +371,7 @@ export function runBacktest(
         sizePct: null,
         stopLoss: null,
         takeProfit: null,
+        maxHoldBars: null,
         barsRemaining: signal.validForBars ?? 1,
         reason: signal.reason,
         createdAt: bar.t,
@@ -387,6 +391,20 @@ export function runBacktest(
       return;
     }
 
+    // 매도 계획 강제 — 살 때 이미 언제 팔지가 정해져 있어야 한다.
+    if (risk.requireExitPlan) {
+      const missing: string[] = [];
+      if (signal.stopLoss === undefined) missing.push("stopLoss");
+      if (signal.takeProfit === undefined) missing.push("takeProfit");
+      if (signal.maxHoldBars === undefined) missing.push("maxHoldBars");
+      if (missing.length > 0) {
+        throw new Error(
+          `EXIT_PLAN_REQUIRED: ${symbol} 진입 신호에 매도 계획이 없습니다 (누락: ${missing.join(", ")}). ` +
+            `requireExitPlan=true 에서는 손절가·익절가·최대보유봉수를 진입 시점에 전부 정해야 합니다.`
+        );
+      }
+    }
+
     pushPending(symbol, {
       symbol,
       side: signal.kind === "BUY" ? "BUY" : "SELL",
@@ -397,6 +415,7 @@ export function runBacktest(
       sizePct: signal.sizePct ?? null,
       stopLoss: signal.stopLoss ?? null,
       takeProfit: signal.takeProfit ?? null,
+      maxHoldBars: signal.maxHoldBars ?? null,
       barsRemaining: signal.validForBars ?? 1,
       reason: signal.reason,
       createdAt: bar.t,
@@ -527,6 +546,7 @@ export function runBacktest(
       existing.entryFx += breakdown.fxCost;
       if (order.stopLoss !== null) existing.stopLoss = order.stopLoss;
       if (order.takeProfit !== null) existing.takeProfit = order.takeProfit;
+      if (order.maxHoldBars !== null) existing.maxHoldBars = order.maxHoldBars;
     } else {
       positions.set(bar.symbol, {
         symbol: bar.symbol,
@@ -537,6 +557,7 @@ export function runBacktest(
         entryBarIndex: (history.get(bar.symbol)?.length ?? 1) - 1,
         stopLoss: order.stopLoss,
         takeProfit: order.takeProfit,
+        maxHoldBars: order.maxHoldBars,
         entryCommission: breakdown.commission,
         entrySlippage: breakdown.slippageCost,
         entryFx: breakdown.fxCost,
@@ -591,6 +612,16 @@ export function runBacktest(
         ? Math.max(bar.o, pos.takeProfit)
         : Math.min(bar.o, pos.takeProfit);
       closePosition(pos, refPrice, bar.t, "LIMIT", "TAKE_PROFIT", session);
+      return;
+    }
+
+    // 시간 청산: 손절·익절 어느 쪽에도 닿지 않은 채 계획한 보유 봉 수를 넘기면 정리한다.
+    // 손절/익절보다 뒤에 두는 이유 — 같은 봉에서 가격 조건이 먼저 성립했다면 그쪽이 실제 체결이다.
+    if (pos.maxHoldBars !== null) {
+      const barIndex = (history.get(bar.symbol)?.length ?? 1) - 1;
+      if (barIndex - pos.entryBarIndex >= pos.maxHoldBars) {
+        closePosition(pos, bar.c, bar.t, "MARKET", "TIME_EXIT", session);
+      }
     }
   }
 

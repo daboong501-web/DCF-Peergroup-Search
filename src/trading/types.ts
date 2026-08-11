@@ -52,6 +52,11 @@ export interface Signal {
   stopLoss?: number;
   /** 익절가 (절대가격). */
   takeProfit?: number;
+  /**
+   * 최대 보유 봉 수. 진입 후 이 봉 수가 지나면 손절·익절에 닿지 않아도 청산한다.
+   * "진입할 때 매도 타이밍을 함께 정한다"는 원칙의 시간축 담당.
+   */
+  maxHoldBars?: number;
   /** 지정가 주문의 유효 봉 수. 기본 1 (다음 봉에서만 유효, 미체결 시 취소). */
   validForBars?: number;
   /** 로깅/분석용 사유. */
@@ -70,6 +75,8 @@ export interface Position {
   openedAt: number;
   stopLoss: number | null;
   takeProfit: number | null;
+  /** 최대 보유 봉 수. null 이면 시간 청산 없음. */
+  maxHoldBars: number | null;
   /** 진입 이후 누적 지불 비용 (수수료 + 슬리피지 + 환전). */
   costPaid: number;
   /** 진입 시 봉 인덱스 (보유 봉 수 계산용). */
@@ -82,6 +89,7 @@ export type FillReason =
   | "EXIT_SIGNAL"
   | "STOP_LOSS"
   | "TAKE_PROFIT"
+  | "TIME_EXIT"
   | "EOD_LIQUIDATION"
   | "DAILY_LOSS_LIMIT";
 
@@ -193,6 +201,16 @@ export interface RiskConfig {
   allowShort: boolean;
   /** 소수점 주식 허용 여부. false 면 수량을 내림한다. 기본 false. */
   allowFractionalShares: boolean;
+  /**
+   * 진입 신호에 **매도 계획이 반드시 포함**되어야 하는지. 기본 false (기존 동작 유지).
+   *
+   * true 면 진입 신호가 `stopLoss`, `takeProfit`, `maxHoldBars` 를 **전부** 갖고 있어야 하고,
+   * 하나라도 빠지면 엔진이 예외를 던져 진입을 거부한다.
+   * "살 때 이미 언제 팔지가 정해져 있어야 한다"는 원칙을 코드로 강제하는 스위치다.
+   * 빠뜨린 청산 조건은 백테스트에서는 조용히 EOD 청산으로 덮이지만
+   * 실거래에서는 그대로 방치된 포지션이 되므로, 실거래 경로는 반드시 true 로 둔다.
+   */
+  requireExitPlan: boolean;
 }
 
 export const DEFAULT_RISK_CONFIG: RiskConfig = {
@@ -202,4 +220,5 @@ export const DEFAULT_RISK_CONFIG: RiskConfig = {
   exitBeforeCloseMinutes: 1,
   allowShort: false,
   allowFractionalShares: false,
+  requireExitPlan: false,
 };
