@@ -40,6 +40,8 @@ import {
   type SellableQuantityResponse,
   type StockInfo,
   type UsMarketCalendarResponse,
+  type KrMarketCalendarResponse,
+  type OrderbookResponse,
 } from "./types";
 
 // ─── 토큰버킷 ───
@@ -258,6 +260,32 @@ export class TossClient {
       out.push(...page);
     }
     return out;
+  }
+
+  /**
+   * 호가 조회. 스프레드 실측에 쓴다 (국내 ETF 비용모델의 스프레드 가정 검증).
+   * Rate Limits Group: MARKET_DATA (초당 10회).
+   */
+  async getOrderbook(symbol: string): Promise<OrderbookResponse> {
+    return this.request<OrderbookResponse>("MARKET_DATA", {
+      method: "GET",
+      url: "/api/v1/orderbook",
+      params: { symbol },
+    });
+  }
+
+  /**
+   * 국내 장 운영 정보. Rate Limits Group: MARKET_INFO (초당 3회).
+   *
+   * ⚠️ 응답의 `integrated` 는 **KRX+NXT 통합 기준**이라 NXT 시간(최대 20:00)까지 포함한다.
+   * KRX 정규장 마감(15:30)과 다르므로 **당일청산 기준 시각으로 쓰지 말고 휴장일 판정에만** 쓸 것.
+   */
+  async getKrMarketCalendar(date?: string): Promise<KrMarketCalendarResponse> {
+    return this.request<KrMarketCalendarResponse>("MARKET_INFO", {
+      method: "GET",
+      url: "/api/v1/market-calendar/KR",
+      params: date ? { date } : undefined,
+    });
   }
 
   /** 미국 장 운영 정보. date 는 미국 현지 YYYY-MM-DD. Rate Limits Group: MARKET_INFO (초당 3회). */

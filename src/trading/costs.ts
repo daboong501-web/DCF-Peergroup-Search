@@ -65,6 +65,18 @@ export interface CostParams {
   applyFx: boolean;
   /** 체결가 반올림 자리수. 미국주식 최소 호가 단위($0.0001)에 맞춘 기본 4. */
   priceRoundDecimals: number;
+  /**
+   * 호가 단위 (원). 지정하면 `priceRoundDecimals` 대신 이 값의 배수로 체결가를 맞춘다.
+   * 국내는 호가 단위가 가격대별로 정해져 있어 임의 소수점 가격이 존재할 수 없다.
+   * 반올림 방향은 **항상 불리한 쪽**(매수 올림 / 매도 내림)이라 낙관적 체결이 나오지 않는다.
+   * 미지정(undefined)이면 기존 소수점 반올림을 그대로 쓴다 — 미국주식 경로는 영향받지 않는다.
+   */
+  tickSize?: number;
+  /**
+   * 매도분 거래세율 (약정금액 대비). 국내주식은 증권거래세가 **매도에만** 붙는다.
+   * **ETF 는 증권거래세가 면제**되므로 0 이다. 미지정 시 0.
+   */
+  sellTaxRate?: number;
 }
 
 export const DEFAULT_COST_PARAMS: CostParams = {
@@ -159,7 +171,12 @@ export function computeFillCost(params: CostParams, input: FillCostInput): FillC
   // 매수는 위로, 매도는 아래로 — 항상 불리한 방향.
   const direction = side === "BUY" ? 1 : -1;
   const rawFillPrice = refPrice * (1 + (direction * slippageBps) / 10_000);
-  const fillPrice = roundTo(rawFillPrice, params.priceRoundDecimals);
+  // 호가 단위가 있으면 그 배수로, 없으면 소수점 자리수로 맞춘다.
+  // 호가 단위 반올림은 불리한 쪽으로만 — 매수는 올리고 매도는 내린다.
+  const fillPrice =
+    params.tickSize && params.tickSize > 0
+      ? roundToTick(rawFillPrice, params.tickSize, side)
+      : roundTo(rawFillPrice, params.priceRoundDecimals);
   const slippagePerShare = Math.abs(fillPrice - refPrice);
   const slippageCost = slippagePerShare * qty;
 
@@ -170,6 +187,8 @@ export function computeFillCost(params: CostParams, input: FillCostInput): FillC
     // SEC fee 와 FINRA TAF 는 매도에만 부과된다.
     commission += notional * params.secFeeRate;
     commission += Math.min(qty * params.tafPerShare, params.tafCapPerOrder);
+    // 국내 증권거래세도 매도에만 부과된다 (ETF 는 면제라 0).
+    commission += notional * (params.sellTaxRate ?? 0);
   }
 
   const fxCost = params.applyFx ? (notional * params.fxSpreadBps) / 10_000 : 0;
@@ -182,6 +201,19 @@ export function computeFillCost(params: CostParams, input: FillCostInput): FillC
     fxCost,
     totalCost: slippageCost + commission + fxCost,
   };
+}
+
+/**
+ * 호가 단위의 배수로 맞춘다. 방향은 항상 불리한 쪽:
+ * 매수는 올림(더 비싸게), 매도는 내림(더 싸게). 낙관적 체결을 원천 차단한다.
+ */
+export function roundToTick(value: number, tickSize: number, side: "BUY" | "SELL"): number {
+  if (!(tickSize > 0)) throw new Error(`INVALID_TICK_SIZE: ${tickSize}`);
+  const ticks = value / tickSize;
+  // 부동소수 오차로 이미 정수인 값이 한 틱 밀리지 않도록 여유를 준다.
+  const EPS = 1e-9;
+  const rounded = side === "BUY" ? Math.ceil(ticks - EPS) : Math.floor(ticks + EPS);
+  return roundTo(rounded * tickSize, 6);
 }
 
 export function roundTo(value: number, decimals: number): number {

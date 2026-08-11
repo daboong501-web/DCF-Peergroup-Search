@@ -172,6 +172,50 @@ export interface UsMarketCalendarResponse {
   nextBusinessDay: UsMarketDay;
 }
 
+// ─── 호가 (GET /api/v1/orderbook) ───
+
+export interface OrderbookEntry {
+  /** 호가. */
+  price: string;
+  /** 잔량. */
+  volume: string;
+}
+
+export interface OrderbookResponse {
+  /** 데이터 시각. 데이터 미제공 시 null. */
+  timestamp?: string | null;
+  currency: Currency;
+  /** 매도호가 목록 (낮은 가격순). asks[0] 이 최우선 매도호가. */
+  asks: OrderbookEntry[];
+  /** 매수호가 목록 (높은 가격순). bids[0] 이 최우선 매수호가. */
+  bids: OrderbookEntry[];
+}
+
+// ─── 국내 장 운영 정보 (GET /api/v1/market-calendar/KR) ───
+
+/**
+ * 거래 가능 시간. **통합 모드(KRX+NXT) 기준**이라 KRX 정규장 마감(15:30)과 다르다.
+ * 당일청산 기준 시각으로 그대로 쓰면 안 되고, 휴장일 판정에만 쓸 것.
+ */
+export interface IntegratedHour {
+  preMarket?: { startTime: string; endTime: string } | null;
+  regularMarket?: { startTime: string; endTime: string } | null;
+  afterMarket?: { startTime: string; endTime: string } | null;
+}
+
+export interface KrMarketDay {
+  /** 영업일 (KST 기준, YYYY-MM-DD). */
+  date: string;
+  /** 통합(KRX+NXT) 거래 가능 시간. 둘 다 휴장이면 null. */
+  integrated?: IntegratedHour | null;
+}
+
+export interface KrMarketCalendarResponse {
+  today: KrMarketDay;
+  previousBusinessDay: KrMarketDay;
+  nextBusinessDay: KrMarketDay;
+}
+
 // ─── 계좌 / 자산 ───
 
 export interface Account {
