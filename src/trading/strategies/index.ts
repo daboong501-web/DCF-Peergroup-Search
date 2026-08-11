@@ -14,6 +14,7 @@ import { strategyRegistry } from "../strategy";
 import { concretumPlugin } from "./concretum";
 import { dailyOpenClosePlugin, gapReversalDailyPlugin } from "./dailyBaseline";
 import { mimClosePlugin } from "./mimClose";
+import { kosdaq150OrbPlugin } from "./kosdaq150Orb";
 import { mindTheGapPlugin } from "./mindTheGap";
 import { noopPlugin } from "./noop";
 
@@ -29,6 +30,9 @@ export function registerBuiltinStrategies(): void {
   strategyRegistry.register(concretumPlugin); // S2
   strategyRegistry.register(mindTheGapPlugin); // S3
 
+  // ── 국내 단일종목 (229200 KODEX 코스닥150) ──
+  strategyRegistry.register(kosdaq150OrbPlugin);
+
   // ── 일봉 베이스라인 (S1~S3 의 대체가 아니라 전제 검증용) ──
   strategyRegistry.register(dailyOpenClosePlugin); // S0
   strategyRegistry.register(gapReversalDailyPlugin); // S3 일봉 프록시
@@ -37,5 +41,6 @@ export function registerBuiltinStrategies(): void {
 export { strategyRegistry };
 export { concretumPlugin } from "./concretum";
 export { dailyOpenClosePlugin, gapReversalDailyPlugin } from "./dailyBaseline";
+export { kosdaq150OrbPlugin } from "./kosdaq150Orb";
 export { mimClosePlugin } from "./mimClose";
 export { mindTheGapPlugin } from "./mindTheGap";
